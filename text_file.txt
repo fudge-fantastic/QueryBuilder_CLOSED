@@ -1,0 +1,31 @@
+1. **Question:** How many customers are there in the database?
+   **Answer:** `SELECT COUNT(*) FROM customer_data;`
+
+2. **Question:** What are the unique values of the 'status' column?
+   **Answer:** `SELECT DISTINCT status FROM customer_data;`
+
+3. **Question:** What is the average age of customers in each age band?
+   **Answer:** `SELECT age_band, AVG(year_last_moved) AS average_age FROM customer_data GROUP BY age_band;`
+
+4. **Question:** How many customers have children?
+   **Answer:** `SELECT COUNT(*) FROM customer_data WHERE children = 'Yes';`
+
+5. **Question:** What is the total sum of the 'average_credit_card_transaction' column?
+   **Answer:** `SELECT SUM(average_credit_card_transaction) FROM customer_data;`
+
+6. **Question:** Which TV areas are represented in the dataset?
+   **Answer:** `SELECT DISTINCT tvarea FROM customer_data;`
+
+7. **Question:** What is the average portfolio balance for male and female customers?
+   **Answer:** `SELECT gender, AVG(portfolio_balance) AS average_balance FROM customer_data GROUP BY gender;`
+
+8. **Question:** How many customers have a 'discount_offering' value greater than 0?
+   **Answer:** `SELECT COUNT(*) FROM customer_data WHERE discount_offering > 0;`
+
+9. **Question:** What are the top 5 post areas with the highest number of customers?
+   **Answer:** `SELECT post_area, COUNT(*) AS customer_count FROM customer_data GROUP BY post_area ORDER BY customer_count DESC LIMIT 5;`
+
+10. **Question:** How many customers have a 'term_deposit' greater than 50?
+    **Answer:** `SELECT COUNT(*) FROM customer_data WHERE term_deposit > 50;`
+
+These questions cover a range of SQL queries including basic aggregations, filtering, grouping, and ordering based on the provided customer data schema.
