@@ -8,12 +8,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
 
 app = FastAPI()
 
 class QuestionRequest(BaseModel):
     question: str
 
+# PostgreSQL Functions
 def get_database_connection():
     dotenv.load_dotenv()
     try:
@@ -33,7 +35,6 @@ def get_database_connection():
 def get_table_metadata_postgresql(conn, table_name):
     try:
         cursor = conn.cursor()
-
         cursor.execute(sql.SQL("""
             SELECT column_name, data_type
             FROM information_schema.columns
@@ -70,6 +71,54 @@ def get_table_metadata_postgresql(conn, table_name):
         print("Error while fetching table metadata", error)
         return None
 
+def execute_query_postgresql(connection, query):
+    try:
+        cursor = connection.cursor()
+        cursor.execute(query)
+        result = cursor.fetchall()
+        colnames = [desc[0] for desc in cursor.description]
+        df = pd.DataFrame(result, columns=colnames)
+        cursor.close()
+        return df
+    except Exception as error:
+        print("Error while executing the query", error)
+        return None
+
+# Spark Functions
+def get_spark_session():
+    spark = SparkSession.builder.appName("DataApp").getOrCreate()
+    return spark
+
+def load_data_into_spark(spark, data_file):
+    df = spark.read.csv(data_file, header=True, inferSchema=True)
+    return df
+
+def get_table_metadata_spark(df):
+    table_metadata = {}
+    for column in df.columns:
+        column_name = column.lower().replace(" ", "_").replace("/", "_")
+        data_type = str(df.schema[column].dataType)
+        unique_values = []
+        if data_type == 'StringType':
+            unique_values = [row[column] for row in df.select(column).distinct().limit(10).collect()]
+        
+        table_metadata[column_name] = {
+            'data_type': data_type,
+            'unique_values': unique_values
+        }
+    return table_metadata
+
+def execute_query_spark(df, query):
+    try:
+        df.createOrReplaceTempView("temp_table")
+        result_df = df.sql_ctx.sql(query)
+        result = result_df.toPandas()
+        return result
+    except Exception as error:
+        print("Error while executing the query", error)
+        return None
+
+# Common Function
 def format_metadata(metadata):
     formatted_metadata = ""
     for col, info in metadata.items():
@@ -115,22 +164,11 @@ def get_llama_assistance(prompt, formatted_metadata, table_name):
     cleaned_response = response_text.replace("```", "").strip()
     return cleaned_response
 
-def execute_query_postgresql(connection, query):
-    try:
-        cursor = connection.cursor()
-        cursor.execute(query)
-        result = cursor.fetchall()
-        colnames = [desc[0] for desc in cursor.description]
-        df = pd.DataFrame(result, columns=colnames)
-        cursor.close()
-        return df
-    except Exception as error:
-        print("Error while executing the query", error)
-        return None
-
+# FastAPI Endpoints
 @app.post("/ask_question_postgresql")
 def ask_question_postgresql(request: QuestionRequest):
     try:
+        dotenv.load_dotenv()
         connection = get_database_connection()
         if connection:
             table_name = os.environ.get("TABLE_NAME_POST")
@@ -158,7 +196,35 @@ def ask_question_postgresql(request: QuestionRequest):
             raise HTTPException(status_code=500, detail="Database Connection Error")
     except Exception as error:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(error)}")
-    
+
+@app.post("/ask_question_spark")
+def ask_question_spark(request: QuestionRequest):
+    try:
+        dotenv.load_dotenv()
+        spark = get_spark_session()
+        data_file = os.environ.get("DATA_FILE")
+        df = load_data_into_spark(spark, data_file)
+        
+        metadata = get_table_metadata_spark(df)
+        formatted_metadata = format_metadata(metadata)
+        
+        input_question = request.question
+        print(f"Question asked: {input_question}")
+        query = get_llama_assistance(input_question, formatted_metadata, "temp_table")
+        print("Generated SQL Query:")
+        print(query)
+        
+        result_df = execute_query_spark(df, query)
+        if result_df is not None:
+            return {
+                "question": input_question,
+                "query": query,
+                "results": result_df.to_dict(orient="records")
+            }
+        else:
+            raise HTTPException(status_code=404, detail="No Results Found")
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(error)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="localhost", port=8000)
